@@ -3,6 +3,8 @@ import numpy as np
 from PIL import Image, ImageEnhance
 import os
 
+#this code expands the dataset for both the CK+ and JAFFE dataset
+
 
 def augment_csv(input_file, output_file):
     print(f"Reading {input_file}...")

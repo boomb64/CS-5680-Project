@@ -12,12 +12,15 @@ from collections import Counter
 
 
 
+# the two main changes implemented are expanding the dataset by transoforming
+# the provided dataset. the other main change is altering the images by
+# removing all areas of the face that aren't the face and mouth
+# this code does the face removing and putting the images through the CNN
+
 #preprocessing the images
 
 class PaperBasedCrop(object):
-    """
-    Implements the geometric cropping described in the paper using OpenCV.
-    """
+    #does the cropping
 
     def __init__(self, output_size=(128, 96)):
         # getting dimensions fromt he paper
@@ -55,6 +58,8 @@ class PaperBasedCrop(object):
         return cv2.resize(img_cropped, self.target_size, interpolation=cv2.INTER_LINEAR)
 
 
+#this class is my original addition. It completely removes all the other parts instead
+#of just warping the shape of the face
 class SalientFeatureStitcher(object):
     #cuts out the eyes, eyebrows, and mouth and gets rid of everything else
 
