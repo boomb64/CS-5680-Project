@@ -1,5 +1,3 @@
-# teehee, this is my code that im working on
-
 import os
 import cv2
 import numpy as np
@@ -11,48 +9,46 @@ import torch.optim as optim
 from PIL import Image
 import matplotlib.pyplot as plt
 
-# -----------------------------------------------------
-#         FIXED RATIO CROPPING (NO CASCADES)
-# -----------------------------------------------------
-def crop_eyes_mouth(img):
+
+# VERTICAL EYES + MOUTH CROPPING
+def crop_eyes_mouth_vertical(img):
     h, w, _ = img.shape
 
-    # Adjust these percentages as needed
+    # Eye region
     eye_top = int(0.40 * h)
     eye_bottom = int(0.55 * h)
-
-    mouth_top = int(0.65 * h)
-    mouth_bottom = int(0.85 * h)
-
     left = int(0.30 * w)
     right = int(0.70 * w)
 
-    # Crop regions
-    eyes = img[eye_top:eye_bottom, left:right]
+    left_eye = img[eye_top:eye_bottom, left:int((left+right)/2)]
+    right_eye = img[eye_top:eye_bottom, int((left+right)/2):right]
+
+    # Mouth region
+    mouth_top = int(0.65 * h)
+    mouth_bottom = int(0.85 * h)
     mouth = img[mouth_top:mouth_bottom, left:right]
 
-    # Resize & grayscale
-    eyes = cv2.resize(eyes, (200, 80))
+    # Resize each to same width
+    left_eye = cv2.resize(left_eye, (200, 80))
+    right_eye = cv2.resize(right_eye, (200, 80))
     mouth = cv2.resize(mouth, (200, 80))
 
-    eyes = cv2.cvtColor(eyes, cv2.COLOR_BGR2GRAY)
+    # Grayscale
+    left_eye = cv2.cvtColor(left_eye, cv2.COLOR_BGR2GRAY)
+    right_eye = cv2.cvtColor(right_eye, cv2.COLOR_BGR2GRAY)
     mouth = cv2.cvtColor(mouth, cv2.COLOR_BGR2GRAY)
 
-    combined = np.vstack([eyes, mouth])  # Shape: (160, 200)
+    # Stack vertically: left eye, right eye, mouth
+    combined = np.vstack([left_eye, right_eye, mouth])  # shape: (240, 200)
     return combined
 
-
-# -----------------------------------------------------
-#                 JAFFE DATASET
-# -----------------------------------------------------
+# JAFFE dataset cropping eyes and mouth
 class EmotionDataset(Dataset):
     def __init__(self, folder, transform=None):
         self.folder = folder
         self.files = [f for f in os.listdir(folder)
                       if f.lower().endswith(('.jpg', '.png', '.jpeg', '.tiff'))]
         self.transform = transform
-
-        # JAFFE uses codes like: KA.AN1.39.tiff → AN
         self.mapping = {"AN": 0, "DI": 1, "FE": 2, "HA": 3, "NE": 4, "SA": 5, "SU": 6}
 
     def __len__(self):
@@ -61,23 +57,16 @@ class EmotionDataset(Dataset):
     def __getitem__(self, idx):
         fname = self.files[idx]
         img_path = os.path.join(self.folder, fname)
-
         img = cv2.imread(img_path)
-        crop = crop_eyes_mouth(img)
-
+        crop = crop_eyes_mouth_vertical(img)
         pil_img = Image.fromarray(crop)
-
         if self.transform:
             pil_img = self.transform(pil_img)
-
         emo_code = fname.split('.')[1][:2]
         label = self.mapping[emo_code]
         return pil_img, label
 
-
-# -----------------------------------------------------
-#            CK+ CSV → Eyes/Mouth Crop Dataset
-# -----------------------------------------------------
+# CK+ CSV → Eyes/Mouth Crop Dataset
 class CKPlusEyesMouthDataset(Dataset):
     def __init__(self, csv_file, transform=None, usage='Training'):
         import pandas as pd
@@ -102,7 +91,7 @@ class CKPlusEyesMouthDataset(Dataset):
         img = cv2.resize(img, (200, 200))
         img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
 
-        crop = crop_eyes_mouth(img)
+        crop = crop_eyes_mouth_vertical(img)
 
         pil_img = Image.fromarray(crop)
         if self.transform:
@@ -110,19 +99,13 @@ class CKPlusEyesMouthDataset(Dataset):
 
         return pil_img, int(row["emotion"])
 
-
-# -----------------------------------------------------
-#                     TRANSFORMS
-# -----------------------------------------------------
+# TRANSFORMS (HIGHER RESOLUTION)
 transform = T.Compose([
-    T.Resize((128, 96)),   # IMPORTANT — matches CNN output dimensions
+    T.Resize((256, 200)),
     T.ToTensor(),
 ])
 
-
-# -----------------------------------------------------
-#                     CNN MODEL
-# -----------------------------------------------------
+# CNN MODEL (adaptive pooling for any input size since we are using high res images compared to the original size from the paper)
 class ResidualBlock(nn.Module):
     def __init__(self, c):
         super().__init__()
@@ -143,20 +126,19 @@ class FacialEmotionCNN(nn.Module):
     def __init__(self, in_channels=1, num_classes=7):
         super().__init__()
 
+        # --- Conv layers ---
         self.conv1 = nn.Sequential(
             nn.Conv2d(in_channels, 32, kernel_size=5, stride=2, padding=2),
             nn.BatchNorm2d(32),
             nn.ReLU(inplace=True)
-        )  # (32, 64, 48)
-
-        self.pool1 = nn.MaxPool2d(2)  # (32, 32, 24)
+        )  # downsample
+        self.pool1 = nn.MaxPool2d(2)
 
         self.conv2 = nn.Sequential(
             nn.Conv2d(32, 64, 3, padding=1),
             nn.BatchNorm2d(64),
             nn.ReLU(inplace=True)
         )
-
         self.res1 = ResidualBlock(64)
 
         self.conv3 = nn.Sequential(
@@ -164,9 +146,7 @@ class FacialEmotionCNN(nn.Module):
             nn.BatchNorm2d(128),
             nn.ReLU(inplace=True)
         )
-
-        self.pool2 = nn.MaxPool2d(2)  # (128, 16, 12)
-
+        self.pool2 = nn.MaxPool2d(2)
         self.res2 = ResidualBlock(128)
 
         self.conv4 = nn.Sequential(
@@ -174,18 +154,21 @@ class FacialEmotionCNN(nn.Module):
             nn.BatchNorm2d(256),
             nn.ReLU(inplace=True)
         )
-
-        self.pool3 = nn.MaxPool2d(2)  # (256, 8, 6)
+        self.pool3 = nn.MaxPool2d(2)
 
         self.conv5 = nn.Sequential(
             nn.Conv2d(256, 512, 3, padding=1),
             nn.BatchNorm2d(512),
             nn.ReLU(inplace=True)
-        )  # (512, 8, 6)
+        )
 
+        # Adaptive pooling to fixed 8x8 feature map
+        self.adaptive_pool = nn.AdaptiveAvgPool2d((8, 8))
         self.flatten = nn.Flatten()
+
+        # Fully connected layers
         self.fc = nn.Sequential(
-            nn.Linear(512 * 8 * 6, 1024),
+            nn.Linear(512 * 8 * 8, 1024),
             nn.ReLU(),
             nn.Dropout(0.5),
             nn.Linear(1024, 512),
@@ -195,28 +178,26 @@ class FacialEmotionCNN(nn.Module):
         )
 
     def forward(self, x):
-        x = self.conv1(x)
-        x = self.pool1(x)
-
-        x = self.conv2(x)
-        x = self.res1(x)
-
-        x = self.conv3(x)
-        x = self.pool2(x)
-        x = self.res2(x)
-
-        x = self.conv4(x)
-        x = self.pool3(x)
+        x = self.conv1(x); x = self.pool1(x)
+        x = self.conv2(x); x = self.res1(x)
+        x = self.conv3(x); x = self.pool2(x); x = self.res2(x)
+        x = self.conv4(x); x = self.pool3(x)
         x = self.conv5(x)
-
+        x = self.adaptive_pool(x)   # <<< ensures fixed 8x8 feature map
         x = self.flatten(x)
         x = self.fc(x)
         return x
 
+# Show the stacked eyes+mouth image to see if the dimensions are good for images
+# test_image = "jaffe/KA.AN1.39.tiff"
+# img = cv2.imread(test_image)
+# stacked = crop_eyes_mouth_vertical(img)
+# plt.imshow(stacked, cmap='gray')
+# plt.title("Stacked Eyes + Mouth")
+# plt.axis('off')
+# plt.show()
 
-# -----------------------------------------------------
-#               TRAINING & EVALUATION
-# -----------------------------------------------------
+# training and evalution calls
 if __name__ == '__main__':
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print("Using device:", device)
@@ -230,7 +211,7 @@ if __name__ == '__main__':
     ck_train_ds = CKPlusEyesMouthDataset("ckextended.csv", transform=transform, usage="Training")
     ck_test_ds = CKPlusEyesMouthDataset("ckextended.csv", transform=transform, usage="PublicTest")
 
-    # Combine JAFFE + CK+
+    # Combine JAFFE & CK+
     combined_train = torch.utils.data.ConcatDataset([jaffe_ds, ck_train_ds])
 
     train_loader = DataLoader(combined_train, batch_size=16, shuffle=True)
@@ -277,17 +258,16 @@ if __name__ == '__main__':
 
         val_acc = correct / total * 100
 
+        # report the epoch and training and testing
         print(f"Epoch {epoch+1}/{EPOCHS} | Train Loss: {train_loss:.4f} | "
               f"Train Acc: {train_acc:.2f}% | Val Acc: {val_acc:.2f}%")
 
 
-    # -----------------------------------------------------
-    #                SINGLE IMAGE PREDICTION
-    # -----------------------------------------------------
+    # run a little prediction for general testing
     test_image = "jaffe/KA.AN1.39.tiff"
 
     raw = cv2.imread(test_image)
-    crop = crop_eyes_mouth(raw)
+    crop = crop_eyes_mouth_vertical(raw)
     pil_crop = Image.fromarray(crop)
 
     img_tensor = transform(pil_crop).unsqueeze(0).to(device)
@@ -298,16 +278,3 @@ if __name__ == '__main__':
 
     emotion_map = {0:"AN",1:"DI",2:"FE",3:"HA",4:"NE",5:"SA",6:"SU"}
     print("Predicted emotion:", emotion_map[pred])
-    # Load a sample image (replace path with one image from your dataset)
-    img_path = "jaffe/KA.AN1.39.tiff"
-    img = cv2.imread(img_path)
-
-    # Get stacked eye-mouth crop
-    stacked_crop = crop_eyes_mouth(img)
-
-    # Display
-    plt.imshow(stacked_crop, cmap='gray')
-    plt.title("Stacked Eye-Mouth Image")
-    plt.axis('off')
-    plt.show()
-
