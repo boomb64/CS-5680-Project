@@ -1,3 +1,56 @@
+"""
+Jaron Harbison
+CS5680 – Final Project Update
+
+This submission includes major updates to the original facial emotion
+classification pipeline, implementing two new research components as
+proposed in the project plan:
+
+1. High-Resolution Region-Focused Image Construction
+   ------------------------------------------------
+   I replaced the original low-resolution holistic facial inputs with a
+   new preprocessing method that extracts high-resolution facial regions
+   (left eye, right eye, and mouth) directly from the input image.
+   The system computes fixed region of interest coordinates based on
+   normalized facial proportions and some testing based on input data.
+   The three cropped regions are resized and combined into a vertically
+   stacked “Frankenstein” image that preserves local detail while
+   reducing overall input size. This improves the discriminatory power
+   of the extracted features and allows the model to handle
+   higher-resolution datasets.
+
+   Modifications:
+   - Increased resolution of the cropped regions of interest to preserve
+     fine-grained texture (wrinkles, eyelid shape, mouth curvature).
+   - Made the stacking format vertical to maintain more consistent feature
+     alignment and improve CNN receptive field usage.
+   - Added visualization utilities to display sample stacked images for
+     debugging and qualitative evaluation.
+
+2. Redesigned Convolutional Neural Network with Adaptive Pooling
+   --------------------------------------------------------------
+   The model architecture has been redesigned to support variable input
+   resolutions using adaptive average pooling. The new network includes
+   deep residual blocks, additional convolutional stages, and an
+   AdaptiveAvgPool2d layer that guarantees a fixed-dimensional feature
+   map (8x8), regardless of the input image size. This prevents
+   dimension-mismatch errors and enables experimentation with multiple
+   resolutions. The paper had a pre defined CNN model with dimensions
+   but to fit the new higher resolution making it adaptive seemed best.
+
+   Modifications:
+   - Included additional convolutional layers to handle the higher-
+     resolution input structure.
+   - Replaced manually calculated flatten dimensions with adaptive
+     pooling to eliminate shape errors and make the architecture
+     resolution-agnostic.
+   - Updated the fully connected layers accordingly.
+
+These two research components represent major conceptual changes to the
+original project and form the basis of the model evaluation and
+experiments in the final report.
+"""
+
 import os
 import cv2
 import numpy as np
