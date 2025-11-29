@@ -51,6 +51,7 @@ original project and form the basis of the model evaluation and
 experiments in the final report.
 """
 
+
 import os
 import cv2
 import numpy as np
@@ -315,19 +316,5 @@ if __name__ == '__main__':
         print(f"Epoch {epoch+1}/{EPOCHS} | Train Loss: {train_loss:.4f} | "
               f"Train Acc: {train_acc:.2f}% | Val Acc: {val_acc:.2f}%")
 
-
-    # run a little prediction for general testing
-    test_image = "jaffe/KA.AN1.39.tiff"
-
-    raw = cv2.imread(test_image)
-    crop = crop_eyes_mouth_vertical(raw)
-    pil_crop = Image.fromarray(crop)
-
-    img_tensor = transform(pil_crop).unsqueeze(0).to(device)
-
-    model.eval()
-    with torch.no_grad():
-        pred = model(img_tensor).argmax(dim=1).item()
-
-    emotion_map = {0:"AN",1:"DI",2:"FE",3:"HA",4:"NE",5:"SA",6:"SU"}
-    print("Predicted emotion:", emotion_map[pred])
+    # save model for testing
+    torch.save(model.state_dict(), "emotion_model.pth")
