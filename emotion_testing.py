@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 from PIL import Image
 import torchvision.transforms as T
 
-from highResFrankenstein import crop_eyes_mouth_vertical, FacialEmotionCNN
+from highResFrankBranchModel import crop_face_parts, FacialEmotionCNN
 
 # --------------------------
 # CONFIGURATION
@@ -69,7 +69,7 @@ for fname in files:
         print(f"Could not load {fname}")
         continue
 
-    crop = crop_eyes_mouth_vertical(raw)
+    crop = crop_face_parts(raw)
     if crop is None:
         print(f"Cropping failed for {fname}")
         continue

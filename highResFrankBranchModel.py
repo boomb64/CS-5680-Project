@@ -1,13 +1,13 @@
 import os
 import cv2
 import numpy as np
+import pandas as pd
 from torch.utils.data import Dataset, DataLoader, ConcatDataset, random_split
 import torchvision.transforms as T
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from PIL import Image
-import matplotlib.pyplot as plt
 
 # -------------------------------------------------------
 #  HAAR CASCADE–BASED FACE PART CROPPING
@@ -16,16 +16,10 @@ face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_fronta
 eye_cascade  = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_eye.xml")
 
 def crop_face_parts(image, out_size=(128, 128)):
-    """
-    Detects the face and crops left eye, right eye, and mouth regions geometrically.
-    Adjusted eye regions to include full eyes and reduce forehead.
-    Returns stacked image: [left_eye; right_eye; mouth].
-    """
-    # Ensure grayscale
     gray = image if len(image.shape) == 2 else cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     h, w = gray.shape
 
-    # --- Face detection ---
+    # Face detection
     faces = face_cascade.detectMultiScale(gray, 1.3, 5)
     if len(faces) > 0:
         x, y, fw, fh = faces[0]
@@ -36,34 +30,26 @@ def crop_face_parts(image, out_size=(128, 128)):
         x, y = (w-fw)//2, (h-fh)//2
         face_roi = gray[y:y+fh, x:x+fw]
 
-    # --- Adjusted geometric eye regions ---
-    # Start a bit lower and extend more vertically
-    eye_top = int(fh * 0.25)        # lower start to reduce forehead
-    eye_height = int(fh * 0.22)     # taller to capture full eye
-
-    # Horizontal positions for left and right eye
+    # Adjusted geometric eye regions
+    eye_top = int(fh * 0.25)
+    eye_height = int(fh * 0.22)
     le_x, le_w = int(fw*0.15), int(fw*0.25)
     re_x, re_w = int(fw*0.6), int(fw*0.25)
-
     left_eye  = face_roi[eye_top:eye_top+eye_height, le_x:le_x+le_w]
     right_eye = face_roi[eye_top:eye_top+eye_height, re_x:re_x+re_w]
 
-    # --- Geometric mouth region ---
+    # Geometric mouth region
     mouth_y_start = int(fh*0.65)
-    mouth_y_end   = int(fh*0.92)
-    if mouth_y_end > fh:
-        mouth_y_end = fh
+    mouth_y_end   = min(int(fh*0.92), fh)
     mouth_roi = face_roi[mouth_y_start:mouth_y_end, :]
-
     if mouth_roi.size == 0:
         mouth_roi = face_roi[fh//2:fh, :]
 
-    # --- Resize all to out_size ---
-    left_eye  = cv2.resize(left_eye,  out_size)
+    # Resize all
+    left_eye  = cv2.resize(left_eye, out_size)
     right_eye = cv2.resize(right_eye, out_size)
     mouth_roi = cv2.resize(mouth_roi, out_size)
 
-    # --- Stack vertically ---
     stacked = np.vstack([left_eye, right_eye, mouth_roi])
     return stacked
 
@@ -73,8 +59,7 @@ def crop_face_parts(image, out_size=(128, 128)):
 class EmotionDataset(Dataset):
     def __init__(self, folder, transform=None):
         self.folder = folder
-        self.files = [f for f in os.listdir(folder)
-                      if f.lower().endswith(('.jpg', '.png', '.jpeg', '.tiff'))]
+        self.files = [f for f in os.listdir(folder) if f.lower().endswith(('.jpg', '.png', '.jpeg', '.tiff'))]
         self.transform = transform
         self.mapping = {"AN":0,"DI":1,"FE":2,"HA":3,"NE":4,"SA":5,"SU":6}
 
@@ -89,13 +74,10 @@ class EmotionDataset(Dataset):
             crop = crop_face_parts(img)
             if crop is not None:
                 break
-            # pick another random image if face missing
             idx = np.random.randint(0, len(self.files))
-
         pil = Image.fromarray(crop)
         if self.transform:
             pil = self.transform(pil)
-
         emo_code = next((p[:2] for p in fname.split(".") if p[:2] in self.mapping), None)
         label = self.mapping[emo_code]
         return pil, label
@@ -105,7 +87,6 @@ class EmotionDataset(Dataset):
 # -------------------------------------------------------
 class CKPlusEyesMouthDataset(Dataset):
     def __init__(self, csv_file, transform=None, usage='Training'):
-        import pandas as pd
         self.df = pd.read_csv(csv_file)
         self.df = self.df[self.df["Usage"] == usage]
         self.df = self.df[self.df["emotion"] != 7]  # remove contempt
@@ -124,7 +105,6 @@ class CKPlusEyesMouthDataset(Dataset):
             if crop is not None:
                 break
             idx = np.random.randint(0, len(self.df))
-
         pil = Image.fromarray(crop)
         if self.transform:
             pil = self.transform(pil)
@@ -135,7 +115,7 @@ class CKPlusEyesMouthDataset(Dataset):
 # -------------------------------------------------------
 transform = T.Compose([
     T.Resize((256, 200)),
-    T.ToTensor(),  # shape (1, H, W)
+    T.ToTensor(),
 ])
 
 # -------------------------------------------------------
@@ -158,52 +138,26 @@ class ResidualBlock(nn.Module):
 class FacialEmotionCNN(nn.Module):
     def __init__(self, num_classes=7):
         super().__init__()
-        self.conv1 = nn.Sequential(
-            nn.Conv2d(1, 32, 5, stride=2, padding=2),
-            nn.BatchNorm2d(32),
-            nn.ReLU(inplace=True)
-        )
+        self.conv1 = nn.Sequential(nn.Conv2d(1,32,5,stride=2,padding=2), nn.BatchNorm2d(32), nn.ReLU(inplace=True))
         self.pool1 = nn.MaxPool2d(2)
-
-        self.conv2 = nn.Sequential(
-            nn.Conv2d(32, 64, 3, padding=1),
-            nn.BatchNorm2d(64),
-            nn.ReLU(inplace=True)
-        )
+        self.conv2 = nn.Sequential(nn.Conv2d(32,64,3,padding=1), nn.BatchNorm2d(64), nn.ReLU(inplace=True))
         self.res1 = ResidualBlock(64)
-
-        self.conv3 = nn.Sequential(
-            nn.Conv2d(64, 128, 3, padding=1),
-            nn.BatchNorm2d(128),
-            nn.ReLU(inplace=True),
-        )
+        self.conv3 = nn.Sequential(nn.Conv2d(64,128,3,padding=1), nn.BatchNorm2d(128), nn.ReLU(inplace=True))
         self.pool2 = nn.MaxPool2d(2)
         self.res2 = ResidualBlock(128)
-
-        self.conv4 = nn.Sequential(
-            nn.Conv2d(128, 256, 3, padding=1),
-            nn.BatchNorm2d(256),
-            nn.ReLU(inplace=True),
-        )
+        self.conv4 = nn.Sequential(nn.Conv2d(128,256,3,padding=1), nn.BatchNorm2d(256), nn.ReLU(inplace=True))
         self.pool3 = nn.MaxPool2d(2)
-
-        self.conv5 = nn.Sequential(
-            nn.Conv2d(256, 512, 3, padding=1),
-            nn.BatchNorm2d(512),
-            nn.ReLU(inplace=True),
-        )
-
-        self.adapt = nn.AdaptiveAvgPool2d((8, 8))
+        self.conv5 = nn.Sequential(nn.Conv2d(256,512,3,padding=1), nn.BatchNorm2d(512), nn.ReLU(inplace=True))
+        self.adapt = nn.AdaptiveAvgPool2d((8,8))
         self.flatten = nn.Flatten()
-
         self.fc = nn.Sequential(
-            nn.Linear(512*8*8, 1024),
+            nn.Linear(512*8*8,1024),
             nn.ReLU(),
             nn.Dropout(0.5),
-            nn.Linear(1024, 512),
+            nn.Linear(1024,512),
             nn.ReLU(),
             nn.Dropout(0.5),
-            nn.Linear(512, num_classes)
+            nn.Linear(512,num_classes)
         )
 
     def forward(self, x):
