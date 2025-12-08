@@ -198,7 +198,7 @@ if __name__ == '__main__':
 
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=1e-4)
-    EPOCHS = 25
+    EPOCHS = 35
 
     # -------------------------------------------------------
     #  TRAINING LOOP WITH VALIDATION

@@ -52,7 +52,7 @@ emotion_map = {
 # --------------------------
 
 files = [f for f in os.listdir(input_folder)
-         if f.lower().endswith((".png", ".jpg", ".jpeg"))]
+         if f.lower().endswith((".png", ".jpg", ".jpeg", ".tiff"))]
 
 print(f"Found {len(files)} images.\n")
 
@@ -96,10 +96,10 @@ for fname in files:
 # --------------------------
 
 n = len(cropped_imgs)
-cols = 8
+cols = 12
 rows = int(np.ceil(n / cols))
 
-fig, axes = plt.subplots(rows, cols, figsize=(10, 5 * rows))
+fig, axes = plt.subplots(rows, cols, figsize=(15, 5 * rows))
 
 # If there is only one row, axes may not be a list of lists
 axes = np.array(axes).reshape(rows, cols)
